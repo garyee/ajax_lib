@@ -12,8 +12,8 @@ $( document ).ajaxStop(function() {
 /**
  *
  * @param ajaxGroup
- * @param lockValue 0-none,1-group,2-element
- * @param ajaxOverride 0-none,1-group,2-element
+ * @param lockValue 0-none,1-group,2-all
+ * @param ajaxOverride 0-none,1-group,2-all
  * @param data
  * @param requestToken
  * @param uri
@@ -35,27 +35,22 @@ function dispatchAjax(data,requestToken,uri,prefix,callback,ajaxGroup,lockValue,
             break;
         case "12": //group locked ,abort all
         case "02": //none locked ,abort all
-            if(Object.keys(ajaxQueue).length!=0) {
-                Object.keys(ajaxQueue).forEach(function (key) {
-                    if (Object.keys(ajaxQueue[key]).length != 0
-                        && key!=ajaxGroup
-                    )
-                        Object.keys(ajaxQueue[key]).forEach(function (id) {
-                            xhr=ajaxQueue[key][id];
+            if(ajaxQueue!=undefined && Object.keys(ajaxQueue).length!=0) {
+                $.each(ajaxQueue,function (key,groupObjs) {
+                    $.each(groupObjs,function (id,xhr) {
                             xhr.abort();
                         });
-                    delete ajaxQueue[key];
+                    delete ajaxQueue[id];
                 });
             }
             xhr=doAjax(ajaxGroup,lockValue,data,requestToken,uri,prefix,callback);
             break;
         case "01": //none locked ,abort group (if no group do call
-            if(typeof ajaxQueue[ajaxGroup]=="object" && Object.keys(ajaxQueue[ajaxGroup]).length!=0) {
-                Object.keys(ajaxQueue[ajaxGroup]).forEach(function (id) {
-                    xhr = ajaxQueue[ajaxGroup][id];
+            if(Object.keys(ajaxQueue).length!=0 && ajaxGroup.hasOwnProperty(ajaxGroup)) {
+                $.each(ajaxGroup[ajaxGroup],function (id,xhr) {
                     xhr.abort();
-                    delete ajaxQueue[ajaxGroup][id];
                 });
+                delete ajaxQueue[id];
             }
             xhr=doAjax(ajaxGroup,lockValue,data,requestToken,uri,prefix,callback)
             break;
@@ -86,34 +81,38 @@ function doAjax(ajaxGroup,lockValue,data,requestToken,uri,prefix,callback){
         data
         //no callback use ajaxSuccess
     ).fail(function (jqXhr, textStatus, errorThrown) {
+        ajaxLock=0;
+        if(textStatus=="error" && errorThrown=="");
+        errorThrown="Ajax-request "+data["AJAX_TOKEN"]+"-"+data["REQUEST_ID"]+" aborted";
+        console.log(errorThrown);
 
-            if(textStatus=="error" && errorThrown=="");
-            errorThrown="Ajax-request "+data["AJAX_TOKEN"]+"-"+data["REQUEST_ID"]+" aborted";
-            console.log(errorThrown);
+    }).success(function(respText) {
+        ajaxLock=0;
+        var jsonResponse={};
+        jsonResponse=parseJsonResult(xhr.responseText);
+        jsonResponse["AJAX_TOKEN"]=prefix;
 
-        }).success(function(respText) {
-            var jsonResponse = JSON && JSON.parse(xhr.responseText) || jQuery.parseJSON(xhr.responseText);
-            if(jsonResponse.hasOwnProperty("AJAX_TOKEN") && jsonResponse["AJAX_TOKEN"]==prefix && callback!=undefined)
-                callback(jsonResponse);
-            if(jsonResponse.hasOwnProperty("REQUEST_ID"))
-                id =jsonResponse["REQUEST_ID"];
-            else
-                id="000";
-            if(jsonResponse.hasOwnProperty("REQUEST_GROUP")) {
-                group = jsonResponse["REQUEST_GROUP"];
+        if(jsonResponse.hasOwnProperty("AJAX_TOKEN") && jsonResponse["AJAX_TOKEN"]==prefix && callback!=undefined)
+            callback(jsonResponse);
+        if(jsonResponse.hasOwnProperty("REQUEST_ID"))
+            id =jsonResponse["REQUEST_ID"];
+        else
+            id="000";
+        if(jsonResponse.hasOwnProperty("REQUEST_GROUP")) {
+            group = jsonResponse["REQUEST_GROUP"];
 
-                if(ajaxQueue[group]!=undefined){
-                    delete ajaxQueue[group][id];
-                    if (Object.keys(ajaxQueue[group]).length == 0)
-                        delete ajaxQueue[group];
-                }
-            }else
-                console.log(prefix+"-Ajax request ended("+id+") with false response");
+            if(ajaxQueue[group]!=undefined){
+                delete ajaxQueue[group][id];
+                if (Object.keys(ajaxQueue[group]).length == 0)
+                    delete ajaxQueue[group];
+            }
+        }else
+            console.log(prefix+"-Ajax request ended("+id+") with false response");
 
-            //console.log(prefix+"-Ajax request ended("+id+")");
+        //console.log(prefix+"-Ajax request ended("+id+")");
 
-        });
-    if(ajaxQueue[ajaxGroup]==undefined)
+    });
+    if(!ajaxQueue.hasOwnProperty(ajaxGroup) || ajaxQueue[ajaxGroup]==undefined)
         ajaxQueue[ajaxGroup]={};
     ajaxQueue[ajaxGroup][ajaxID]=xhr;
 
@@ -125,100 +124,169 @@ function doAjax(ajaxGroup,lockValue,data,requestToken,uri,prefix,callback){
  * have another element with the class="progressBar" inside!!!
  * @param state
  */
-$.fn.toggleProgressBar = function(state,direct) {
-    switch (state) {
-        case 'toggle':
-            if(!direct)
-                $(this).find(".progressBar").toggleClass("loader");
-            else
-                $(this).toggleClass("loader");
-            break;
-        case'off':
-            if(!direct)
-                $(this).find(".progressBar").removeClass("loader");
-            else
-                $(this).removeClass("loader");
-            break;
-        case'on':
-            if(!direct)
-                $(this).find(".progressBar").empty().addClass("loader");
-            else
-                $(this).empty().addClass("loader");
-            break;
+$.fn.toggleProgressBar = function(state,hideShowCallBack,finishCallback,delay) {
+    delay = delay ||0;
+    var time=delay;
+    var toUse=$(this).find(".progressBar");
+    var direct=$(this).hasClass('progressBar');
+    if(direct)
+        toUse=$(this);
+    var hideShowCallBackOn=typeof hideShowCallBack !== 'undefined' && $.isFunction(hideShowCallBack);
+    if(toUse.length>0 ) {
+    $.each(toUse,function(index,elem){
+        elem=$(elem);
+        setTimeout(function() {
+            var children = elem.children();
+            if (children.length <= 0) {
+                elem.wrapInner("<span style='display:none;'></span>");
+            }
+            switch (state) {
+                case 'toggle':
+                    if (hideShowCallBackOn)
+                        hideShowCallBack(elem);
+                    if(elem.hasClass("loader")){
+                        elem.children().show();
+                    }else{
+                        elem.children().hide();
+                    }
+                    elem.toggleClass("loader");
+                    break;
+                case'off':
+                    if(elem.data("backUpWidth")) {
+                        //elem.css("width", elem.data("backUpWidth"));
+                        //elem.removeData("backUpWidth");
+                    }
+                    elem.removeClass("loader");
+                    if (hideShowCallBackOn)
+                        hideShowCallBack(elem);
+                    else
+                        elem.children().show();
+                    break;
+                case'on':
+                    //elem.data("backUpWidth",elem.css("width"));
+                    //elem.css("width", "10em");
+                    if (hideShowCallBackOn)
+                        hideShowCallBack(elem);
+                    else
+                        elem.children().hide();
+                    elem.addClass("loader");
+                    break;
+            }
+            if(typeof finishCallback !== 'undefined' && $.isFunction(finishCallback) && index==toUse.length-1){
+                elem.promise().done(function(){finishCallback();});
+            }
+        }, time);
+        time += delay;
+    });
     }
 }
 
-//$(document).ready(function () {
-//
-//      if($("#nav_error").length==0) {
-//        $("#run_page").toggleProgressBar("on");
-//        $("#run_page").fadeIn(animationTime * 2);
-//    }
-//
-//
-//
-//    $(document).ajaxSend(function (event, jqxhr, settings) {
-//    //copy for OnSend Listener use settings.data
-//    });
-//});
+function parseJsonResult(text,dispdirect){
+    dispdirect= dispdirect || true;
+    var res={};
+    try {
+        res = JSON && JSON.parse(text) || jQuery.parseJSON(text);
+    }catch (err){
+        if(dispdirect)
+            setStateMsg("error",err.message,6001);
+        else
+            res["error"]=err.message;
+    }
+    return res;
+}
+
+var permQueue=undefined;
+var tempQueue=undefined;
+
+function setStateMsg(type,msg,time,prio){
+    prio = prio || 0;
+    if(time==undefined)
+        time=2000;
+    if(time==undefined)
+        prio= 10;
+    if(type=="error")
+        prio+=10;
+    prio= Math.min(100,prio);
+    var render="temp";
+
+    if(tempQueue != undefined && msg==tempQueue["msg"] ||
+        permQueue != undefined && msg==permQueue["msg"] ||
+        msg==$('.state_msg').text()
+    )
+        return;
+
+    if (time > 0 || type=="confirm") {
+        time = Math.max(time, 3000);
+        if(tempQueue == undefined || (tempQueue != undefined && tempQueue["prio"]<=(prio+5))){
+            tempQueue={'type':type,'msg':msg,'time':time,'prio':prio};
+            setMsg2Html(render,type,msg,time);
+        }
+    }else {
+        render="perm";
+        if(permQueue == undefined || (permQueue != undefined && permQueue["prio"]<=(prio+10))) {
+            permQueue = {'type': type, 'msg': msg, 'time': time, 'prio': prio};
+            setMsg2Html(render,type,msg,time);
+        }
+    }
+}
+
+function setMsg2Html(render,type,msg,time){
+    if($('.state_msg').length>0)
+        stateMsgAway(true);
+    var msgDiv = $('<div></div>').addClass("state_msg " + type).attr("data-render",render).html(msg);
+    var background='#0D5C83';
+    switch(type){
+        case"confirm":
+            background='#0975D5';
+            break;
+        case"error":
+            background='#CC0033';
+            break;
+        case"info":
+            background='#0975D5';
+            break;
+        default:
+            break;
+    }
+    msgDiv.css({'background-color': background,'z-index':9999,'padding': '1em','width':'100%','text-align': 'center','position':'fixed','bottom': '0px','left': '0px',});
+    msgDiv.hide();
+    $("body").append(msgDiv);
+    if (typeof jQuery.ui != 'undefined') {
+        msgDiv.show("slide", { direction: "down" }); //wenn hier Fehler Jquery-UI einbinden!
+    }else
+        msgDiv.fadeIn();
+    if(render=="temp")
+        setTimeout(function () {
+            stateMsgAway();
+        }, time);
+}
+function stateMsgAway(forceAll){
+    forceAll= forceAll || false;
+    if(forceAll){
+        permQueue=undefined;
+        tempQueue=undefined;
+    }else
+        var current_render=$('.state_msg').attr("data-render");
+    if (typeof jQuery.ui != 'undefined') {
+        $('.state_msg').stop().hide("slide", {direction: "down"}, 400, function () {
+            $(this).remove();
+        });
+    }else
+        $('.state_msg').stop().fadeOut(400, function () {
+            $(this).remove();
+        });
+    if(!forceAll && current_render!=undefined && current_render=="temp") {
+        tempQueue = undefined;
+        if (permQueue != undefined)
+            setMsg2Html("perm", permQueue["prio"], permQueue["type"], permQueue["msg"], 0);
+    }
+}
 
 //$(document).ajaxSuccess(function (event, xhr, settings) {
 //    var jsonResponse = JSON && JSON.parse(xhr.responseText) || jQuery.parseJSON(xhr.responseText);
 //    if (jsonResponse.hasOwnProperty("res")) {
-//        if(ajaxResultCache["res"]==undefined)
-//            ajaxResultCache["res"]={};
-//        if (Object.keys(jsonResponse["res"]).length == 0) {
-//            $("#run_page").clear();
-//            $("#to_page").clear();
-//        } else {
-////                   $("#run_page h2").empty();
-////                   $("#to_page h2").empty();
-//            if (jsonResponse["res"].hasOwnProperty("tobj")) {
-//                if(ajaxResultCache["res"]["tobj"]==undefined)
-//                    ajaxResultCache["res"]["tobj"]={};
-//
-//
-//                if (jsonResponse["res"]["tobj"].hasOwnProperty("desc")) {
-//                    $("#to_desc").toggleProgress('off');
-//                    $("#to_desc").clear();
-//                    to_doDesc(jsonResponse["res"]["tobj"]["desc"]);
-//                }
-//                if (jsonResponse["res"]["tobj"].hasOwnProperty("res")) {
-//                    ajaxResultCache["res"]["tobj"]["res"]=jsonResponse["res"]["tobj"]["res"];
-//                    $("#to_res").toggleProgress('off');
-//                    $("#to_res").clear();
-//                    to_doRes(jsonResponse["res"]["tobj"]["res"]);
-//                }
-//                if (jsonResponse["res"]["tobj"].hasOwnProperty("hist")) {
-//                    ajaxResultCache["res"]["tobj"]["hist"]=jsonResponse["res"]["tobj"]["hist"];
-//                    $("#to_hist").toggleProgress('off');
-//                    $("#to_hist").clear();
-//                    to_doHist(jsonResponse["res"]["tobj"]["hist"]);
-//                }
-//            }
-//            if (jsonResponse["res"].hasOwnProperty("run")) {
-//                if(ajaxResultCache["res"]["run"]==undefined)
-//                    ajaxResultCache["res"]["run"]={};
-//
-//                if (jsonResponse["res"]["run"].hasOwnProperty("desc")) {
-//                    $("#run_desc").toggleProgress('off');
-//                    $("#run_desc").clear();
-//                    run_doDesc(jsonResponse["res"]["run"]["desc"]);
-//                }
-//                if (jsonResponse["res"]["run"].hasOwnProperty("tobj")) {
-//                    $("#run_tobj").toggleProgress('off');
-//                    $("#run_tobj").clear();
-//                    run_tobj(jsonResponse["res"]["run"]["tobj"]);
-//                }
-//                if (jsonResponse["res"]["run"].hasOwnProperty("hist")) {
-//                    ajaxResultCache["res"]["run"]["hist"]=jsonResponse["res"]["run"]["hist"];
-//                    $("#run_hist").toggleProgress('off');
-//                    $("#run_hist").clear();
-//                    run_doHist(jsonResponse["res"]["run"]["hist"]);
-//                }
-//            }
+//        
 //        }
-//    }
 //
 //});
 
