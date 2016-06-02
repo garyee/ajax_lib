@@ -92,7 +92,7 @@ function doAjax(ajaxGroup,lockValue,data,requestToken,uri,prefix,callback){
             console.log(errorThrown);
 
         }).success(function(respText) {
-            var jsonResponse = parseJsonResult(xhr);
+            var jsonResponse = JSON && JSON.parse(xhr.responseText) || jQuery.parseJSON(xhr.responseText);
             if(jsonResponse.hasOwnProperty("AJAX_TOKEN") && jsonResponse["AJAX_TOKEN"]==prefix && callback!=undefined)
                 callback(jsonResponse);
             if(jsonResponse.hasOwnProperty("REQUEST_ID"))
@@ -119,18 +119,6 @@ function doAjax(ajaxGroup,lockValue,data,requestToken,uri,prefix,callback){
 
     return xhr;
 }
-
-function parseJsonResult(xhr){
-    var res={};
-    try{
-        res = JSON && JSON.parse(xhr.responseText) || jQuery.parseJSON(xhr.responseText);
-    }catch (err){
-        console.log("json Parse Error!");
-        // window.location.reload(true);
-    }
-    return res;
-}
-
 
 /**
  * Toogle the ajax loading animation on Elements which:
